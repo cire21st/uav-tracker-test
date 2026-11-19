@@ -1,5 +1,5 @@
 import unittest
-from uav_tracker.geometry import Detection, pick_target, to_angle10
+from uav_tracker.geometry import Detection, pick_target, to_angle10, to_control_values
 
 
 class CoordinatesTest(unittest.TestCase):
@@ -48,6 +48,18 @@ class PickTargetTest(unittest.TestCase):
         b = Detection((0, 0, 1, 1), 0.8, 0, "q", 2)
         self.assertIs(pick_target([a, b], 9), b)
         self.assertIs(pick_target([a, b], None), b)
+
+
+class ControlValuesTest(unittest.TestCase):
+    def test_right_and_up_are_positive(self):
+        # 드론이 중앙보다 오른쪽 위 → dx +, dy + (팀 펌웨어: 조이스틱 위 = +)
+        dx, dy = to_control_values(310, -20, 1280, 720, 95.8)
+        self.assertEqual((dx, dy), (250, 17))
+
+    def test_below_center_is_negative_dy(self):
+        dx, dy = to_control_values(0, 100, 1280, 720, 95.8)
+        self.assertEqual(dx, 0)
+        self.assertLess(dy, 0)
 
 
 if __name__ == "__main__":

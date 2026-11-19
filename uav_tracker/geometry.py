@@ -41,3 +41,14 @@ def pick_target(detections, locked_id):
             if d.track_id == locked_id:
                 return d
     return max(detections, key=lambda d: d.confidence)
+
+
+def to_control_values(error_x: float, error_y: float, width: int, height: int,
+                      dfov_deg: float) -> tuple[int, int]:
+    """제어부(motor_control)에 보낼 dx, dy. 단위는 각도 × 10 (정수).
+
+    팀 펌웨어 규칙에 맞춥니다: dx는 오른쪽이 +, dy는 위쪽이 + (조이스틱을 위로 밀 때와 같은 방향).
+    영상 좌표는 아래쪽이 +이므로 세로 부호만 뒤집습니다.
+    """
+    ax, ay = to_angle10(error_x, error_y, width, height, dfov_deg)
+    return ax, -ay
