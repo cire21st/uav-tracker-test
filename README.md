@@ -36,6 +36,7 @@ Default settings:
 - Class 0: `quadcopter`
 - Class 1: `fixed-wing`
 - Camera: device 0
+- Confidence threshold: 0.50
 - Exit: `Q` or `Esc`
 
 Use another camera:
@@ -55,6 +56,17 @@ Lower the detection confidence threshold:
 ```powershell
 .\.venv\Scripts\python.exe main.py --conf 0.15
 ```
+
+Send the target angle error to an Arduino over serial (every frame):
+
+```powershell
+.\.venv\Scripts\python.exe main.py --serial auto    # find the Arduino automatically
+.\.venv\Scripts\python.exe main.py --serial COM5    # or name the port
+```
+
+`auto` picks the one connected Arduino (official boards and CH340/FTDI/CP210x clones). If none or more than one is found, the app stops before opening the camera and lists the available ports; then pass the port name instead.
+
+The message is `<valid,ax,ay>\n` at 115200 baud. `ax` and `ay` are the angle errors from the frame center in 0.1° units (right/down positive), computed with `atan` from the camera's diagonal field of view (`--dfov`, default 95.8). When nothing is detected, `<0,0,0>` is still sent as a heartbeat. Keep the camera's native aspect ratio (e.g. 16:9 at 1280×720); a cropped mode changes the real field of view.
 
 Show all options:
 

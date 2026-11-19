@@ -22,12 +22,17 @@ def parse_args():
     parser.add_argument("--model", default="models/best.pt", help="모델 경로 (기본: UAV 전용 models/best.pt)")
     parser.add_argument("--mode", choices=["detect", "track"], default="track")
     parser.add_argument("--tracker", choices=["bytetrack.yaml", "botsort.yaml"], default="bytetrack.yaml")
-    parser.add_argument("--conf", type=float, default=0.30)
+    parser.add_argument("--conf", type=float, default=0.50, help="탐지 신뢰도 임계값 (기본 0.50)")
     parser.add_argument("--imgsz", type=positive, default=640)
     parser.add_argument("--device", default="cpu", help="cpu 또는 CUDA GPU 번호 0")
     parser.add_argument("--classes", type=int, nargs="+", help="클래스 번호. 기본 UAV 모델: 쿼드콥터 0, 고정익 1")
     parser.add_argument("--print-every", type=positive, default=10, help="N 프레임마다 콘솔 출력; 1은 매 프레임")
+    parser.add_argument("--serial", metavar="PORT", help="아두이노 포트 (예: COM5) 또는 auto(자동 탐색). 지정하면 매 프레임 각도 오차 전송")
+    parser.add_argument("--baud", type=positive, default=115200)
+    parser.add_argument("--dfov", type=float, default=95.8, help="카메라 대각선 화각(도), 기본 95.8")
     args = parser.parse_args()
+    if not 0 < args.dfov < 180:
+        parser.error("--dfov는 0~180 사이여야 합니다.")
     if not 0 <= args.conf <= 1:
         parser.error("--conf는 0~1 사이여야 합니다.")
     if args.camera < 0 or (args.classes and min(args.classes) < 0):
@@ -43,15 +48,25 @@ def main():
         from .camera import Camera
         from .detector import Detector
         from .display import draw
+        from .geometry import pick_target, to_angle10
+        from .serial_link import SerialLink, resolve_port
     except ImportError as exc:
         print(f"필수 패키지 로드 실패: {exc}\npython -m pip install -r requirements.txt", file=sys.stderr)
         return 1
 
     camera = None
+    link = None
     try:
+        # 모델·카메라를 열기 전에 포트부터 찾아서, 못 찾으면 바로 알려줍니다.
+        port = resolve_port(args.serial) if args.serial else None
         detector = Detector(args.model, args.mode, args.tracker, args.conf,
                             args.imgsz, args.device, args.classes)
         camera = Camera(args.camera, args.backend, args.width, args.height, args.fps)
+        if port:
+            link = SerialLink(port, args.baud)
+            print(f"시리얼 연결: {port} @ {args.baud}", flush=True)
+        locked_id = None
+        message = None
         frame_number = 0
         window = "UAV Tracker"
         cv2.namedWindow(window, cv2.WINDOW_NORMAL)
@@ -61,12 +76,23 @@ def main():
             height, width = frame.shape[:2]  # 요청 해상도가 아닌 실제 영상 기준
             detections = detector.process(frame)
             frame_number += 1
+            if link is not None:
+                # 출력 주기와 무관하게 매 프레임 전송합니다. 놓쳐도 valid=0을 보내 하트비트로 씁니다.
+                target = pick_target(detections, locked_id)
+                if target is None:
+                    message = link.send(0)
+                else:
+                    locked_id = target.track_id
+                    point = target.coordinates(width, height)
+                    message = link.send(1, *to_angle10(point["error_x"], point["error_y"],
+                                                       width, height, args.dfov))
             if frame_number == 1 or frame_number % args.print_every == 0:
                 objects = [dict(class_id=d.class_id, name=d.name, confidence=d.confidence,
                                 track_id=d.track_id, **d.coordinates(width, height)) for d in detections]
                 # 빈 목록은 현재 검출 없음입니다. 이전 좌표를 재사용하지 않습니다.
                 print(json.dumps(dict(frame=frame_number, width=width, height=height,
-                                      objects=objects), ensure_ascii=False), flush=True)
+                                      objects=objects, serial=message and message.strip()),
+                                 ensure_ascii=False), flush=True)
             fps = 1 / max(time.perf_counter() - started, 1e-9)
             cv2.imshow(window, draw(frame, detections, fps, args.mode))
             if cv2.waitKey(1) & 0xFF in (ord("q"), 27):
@@ -82,5 +108,8 @@ def main():
         # 오류나 Ctrl+C로 종료해도 다른 앱에서 카메라를 다시 사용할 수 있게 반환합니다.
         if camera is not None:
             camera.close()
+        if link is not None:
+            link.send(0)  # 종료 직전 '놓침'을 알려 아두이노가 그 자리에 멈추게 합니다.
+            link.close()
         cv2.destroyAllWindows()
     return 0
