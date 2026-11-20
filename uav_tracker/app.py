@@ -27,23 +27,10 @@ def parse_args():
     parser.add_argument("--device", default="cpu", help="cpu 또는 CUDA GPU 번호 0")
     parser.add_argument("--classes", type=int, nargs="+", help="클래스 번호. 기본 UAV 모델: 쿼드콥터 0, 고정익 1")
     parser.add_argument("--print-every", type=positive, default=10, help="N 프레임마다 콘솔 출력; 1은 매 프레임")
-    parser.add_argument("--udp", nargs="?", const="127.0.0.1:5005", metavar="HOST:PORT",
-                        help="control.py로 매 프레임 dx,dy,flag 전송 (권장). 값 생략 시 127.0.0.1:5005")
     parser.add_argument("--serial", metavar="PORT",
-                        help="아두이노로 A,dx,dy,flag 직접 전송 (control.py 없이 시험할 때). COM5 또는 auto")
+                        help="아두이노로 매 프레임 A,dx,dy,flag 전송 (픽셀 오차). COM5 또는 auto(자동 탐색)")
     parser.add_argument("--baud", type=positive, default=115200)
-    parser.add_argument("--dfov", type=float, default=95.8, help="카메라 대각선 화각(도), 기본 95.8")
     args = parser.parse_args()
-    if args.udp and args.serial:
-        parser.error("--udp와 --serial은 함께 쓸 수 없습니다. 보통은 --udp만 쓰세요.")
-    if args.udp:
-        from .serial_link import parse_udp_target  # 표준 라이브러리만 쓰므로 --help 전에도 가볍습니다.
-        try:
-            parse_udp_target(args.udp)
-        except ValueError as exc:
-            parser.error(str(exc))
-    if not 0 < args.dfov < 180:
-        parser.error("--dfov는 0~180 사이여야 합니다.")
     if not 0 <= args.conf <= 1:
         parser.error("--conf는 0~1 사이여야 합니다.")
     if args.camera < 0 or (args.classes and min(args.classes) < 0):
@@ -60,7 +47,7 @@ def main():
         from .detector import Detector
         from .display import draw
         from .geometry import pick_target, to_control_values
-        from .serial_link import SerialLink, UdpLink, resolve_port
+        from .serial_link import SerialLink, resolve_port
     except ImportError as exc:
         print(f"필수 패키지 로드 실패: {exc}\npython -m pip install -r requirements.txt", file=sys.stderr)
         return 1
@@ -75,10 +62,7 @@ def main():
         camera = Camera(args.camera, args.backend, args.width, args.height, args.fps)
         if port:
             link = SerialLink(port, args.baud)
-            print(f"시리얼 연결: {port} @ {args.baud} (아두이노로 직접 전송)", flush=True)
-        elif args.udp:
-            link = UdpLink(args.udp)
-            print(f"UDP 전송: {link.address[0]}:{link.address[1]} (control.py 수신)", flush=True)
+            print(f"시리얼 연결: {port} @ {args.baud}", flush=True)
         locked_id = None
         message = None
         frame_number = 0
@@ -91,15 +75,14 @@ def main():
             detections = detector.process(frame)
             frame_number += 1
             if link is not None:
-                # 출력 주기와 무관하게 매 프레임 전송합니다. 놓쳐도 valid=0을 보내 하트비트로 씁니다.
+                # 출력 주기와 무관하게 매 프레임 전송합니다. 놓쳐도 flag=0을 보내 하트비트로 씁니다.
                 target = pick_target(detections, locked_id)
                 if target is None:
                     message = link.send(0, 0, 0)
                 else:
                     locked_id = target.track_id
                     point = target.coordinates(width, height)
-                    dx, dy = to_control_values(point["error_x"], point["error_y"],
-                                               width, height, args.dfov)
+                    dx, dy = to_control_values(point["error_x"], point["error_y"])
                     message = link.send(dx, dy, 1)
             if frame_number == 1 or frame_number % args.print_every == 0:
                 objects = [dict(class_id=d.class_id, name=d.name, confidence=d.confidence,

@@ -1,16 +1,12 @@
-"""제어부로 목표 정보를 보내는 연결부.
+"""아두이노(motor_control)로 목표 정보를 보내는 시리얼 송신기.
 
-보내는 값은 dx, dy, flag 세 정수입니다 (팀 펌웨어 motor_control 의 AUTO 규칙).
-  dx: 화면 중앙 기준 가로 각도 오차 × 10. 오른쪽이 +   (예: 250 = 오른쪽 25.0°)
-  dy: 화면 중앙 기준 세로 각도 오차 × 10. 위쪽이 +
+메시지 (글자 한 줄, 115200 baud, 매 프레임):  A,dx,dy,flag + 줄바꿈
+  dx: 화면 중앙 기준 가로 픽셀 오차, 정수. 오른쪽 +, 왼쪽 −   (1280×720 기준 약 −640 ~ +640)
+  dy: 화면 중앙 기준 세로 픽셀 오차, 정수. 위쪽 +, 아래쪽 −   (약 −360 ~ +360)
   flag: 1 = 드론 탐지, 0 = 못 찾음 (못 찾아도 매 프레임 보내서 하트비트 역할)
 
-연결 방법은 두 가지입니다.
-  UdpLink    → control.py 로 "dx,dy,flag" 전송 (권장. control.py 가 COM 포트를 맡고
-               키보드/조이스틱/자동 모드를 F1~F3 으로 전환)
-  SerialLink → 아두이노로 "A,dx,dy,flag\n" 직접 전송 (control.py 없이 자동 모드만 시험할 때)
+정수 값을 2바이트 바이너리가 아니라 글자(ASCII)로 보냅니다. 조이스틱 메시지(M,x,y)와 같은 방식입니다.
 """
-import socket
 import time
 
 # 아두이노 정품과 흔한 호환보드 USB-시리얼 칩의 USB 제조사 ID(VID)
@@ -21,8 +17,6 @@ ARDUINO_VIDS = {
     0x0403: "FTDI",
     0x10C4: "CP210x",
 }
-
-DEFAULT_UDP = "127.0.0.1:5005"
 
 
 def _describe(port):
@@ -56,40 +50,9 @@ def resolve_port(name):
     return find_arduino_port() if name.lower() == "auto" else name
 
 
-def parse_udp_target(text):
-    """'HOST:PORT' 또는 'PORT' → (host, port)."""
-    host, _, port = text.rpartition(":")
-    try:
-        number = int(port)
-    except ValueError:
-        raise ValueError(f"UDP 주소 형식이 잘못되었습니다: {text} (예: 127.0.0.1:5005)") from None
-    if not 0 < number < 65536:
-        raise ValueError(f"UDP 포트 번호는 1~65535 사이여야 합니다: {number}")
-    return host or "127.0.0.1", number
-
-
 def _values(dx, dy, flag):
     flag = 1 if flag else 0
     return (int(dx), int(dy), flag) if flag else (0, 0, 0)
-
-
-class UdpLink:
-    """control.py 로 'dx,dy,flag' 를 보냅니다. 받는 쪽이 없어도 에러 없이 계속 동작합니다."""
-
-    def __init__(self, target=DEFAULT_UDP):
-        self.address = parse_udp_target(target)
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-    def send(self, dx=0, dy=0, flag=0):
-        message = "{},{},{}".format(*_values(dx, dy, flag))
-        try:
-            self.sock.sendto(message.encode("ascii"), self.address)
-        except OSError:
-            pass  # control.py 가 아직 안 켜져 있어도 비전은 멈추지 않습니다.
-        return message
-
-    def close(self):
-        self.sock.close()
 
 
 class SerialLink:

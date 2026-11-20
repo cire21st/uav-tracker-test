@@ -57,21 +57,20 @@ Lower the detection confidence threshold:
 .\.venv\Scripts\python.exe main.py --conf 0.15
 ```
 
-Send the target to the pan-tilt controller (every frame):
+Send the target to the Arduino (every frame):
 
 ```powershell
-.\.venv\Scripts\python.exe main.py --udp                 # to control.py on this PC (127.0.0.1:5005), recommended
-.\.venv\Scripts\python.exe main.py --serial auto         # or straight to the Arduino, without control.py
+.\.venv\Scripts\python.exe main.py --serial auto    # find the Arduino automatically
+.\.venv\Scripts\python.exe main.py --serial COM5    # or name the port
 ```
 
-Values follow the team firmware (`uav-vision-tracker/firmware/motor_control`) AUTO mode:
+Each frame sends one text line `A,dx,dy,flag` at 115200 baud, the AUTO format of the team firmware (`uav-vision-tracker/firmware/motor_control`):
 
-- `dx`, `dy`: angle error from the frame center × 10, as integers. **Right and up are positive** (same as pushing the joystick right/up). Example: `250` = 25.0°.
-- `flag`: 1 = target detected, 0 = not detected. `0,0,0` is still sent every frame as a heartbeat.
+- `dx`, `dy`: pixel error from the frame center, as integers, like an x-y plane: **right and up are positive**. At 1280×720 the range is about ±640 and ±360.
+- `flag`: 1 = target detected, 0 = not detected. `A,0,0,0` is still sent every frame as a heartbeat.
+- The integers are sent as text digits, not 2-byte binary, the same way as the joystick message `M,x,y`.
 
-`--udp` sends `dx,dy,flag` to `control.py`, which owns the COM port and switches between keyboard (F1), joystick (F2) and auto (F3) modes. `--serial` opens the COM port itself and sends `A,dx,dy,flag\n` at 115200 baud; use it only when `control.py` is not running, since only one program can open the port. `--serial auto` picks the one connected Arduino (official boards and CH340/FTDI/CP210x clones) and lists the ports if it cannot.
-
-Angles are computed with `atan` from the camera's diagonal field of view (`--dfov`, default 95.8 for the STCOM biz FHD60F). Keep the camera's native aspect ratio (e.g. 16:9 at 1280×720); a cropped mode changes the real field of view.
+The vision app opens the COM port itself, so it cannot run at the same time as another program that uses the same port (such as the joystick controller). `--serial auto` picks the one connected Arduino (official boards and CH340/FTDI/CP210x clones) and lists the ports if it cannot.
 
 Show all options:
 

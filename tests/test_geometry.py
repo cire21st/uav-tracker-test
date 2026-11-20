@@ -1,5 +1,5 @@
 import unittest
-from uav_tracker.geometry import Detection, pick_target, to_angle10, to_control_values
+from uav_tracker.geometry import Detection, pick_target, to_control_values
 
 
 class CoordinatesTest(unittest.TestCase):
@@ -16,22 +16,6 @@ class CoordinatesTest(unittest.TestCase):
         d = Detection((1000, 600, 1200, 700), 0.9, 0, "person", 7)
         self.assertEqual(d.coordinates(1280, 720),
                          dict(cx=1100, cy=650, error_x=460, error_y=290))
-
-
-class AngleTest(unittest.TestCase):
-    def test_center_is_zero(self):
-        self.assertEqual(to_angle10(0, 0, 1280, 720, 95.8), (0, 0))
-
-    def test_frame_edges_match_fov(self):
-        # 대각선 95.8°, 16:9 → 가로 약 ±44.0°, 세로 약 ±28.5°
-        ax, ay = to_angle10(640, 360, 1280, 720, 95.8)
-        self.assertAlmostEqual(ax / 10, 44.0, delta=0.2)
-        self.assertAlmostEqual(ay / 10, 28.5, delta=0.2)
-        self.assertEqual(to_angle10(-640, -360, 1280, 720, 95.8), (-ax, -ay))
-
-    def test_same_angle_across_resolution(self):
-        self.assertEqual(to_angle10(320, 180, 1280, 720, 95.8),
-                         to_angle10(160, 90, 640, 360, 95.8))
 
 
 class PickTargetTest(unittest.TestCase):
@@ -51,15 +35,19 @@ class PickTargetTest(unittest.TestCase):
 
 
 class ControlValuesTest(unittest.TestCase):
-    def test_right_and_up_are_positive(self):
-        # 드론이 중앙보다 오른쪽 위 → dx +, dy + (팀 펌웨어: 조이스틱 위 = +)
-        dx, dy = to_control_values(310, -20, 1280, 720, 95.8)
-        self.assertEqual((dx, dy), (250, 17))
+    def test_xy_plane_signs(self):
+        # 오른쪽 위 → dx +, dy +  /  왼쪽 아래 → dx −, dy −
+        self.assertEqual(to_control_values(310, -20), (310, 20))
+        self.assertEqual(to_control_values(-310, 20), (-310, -20))
 
-    def test_below_center_is_negative_dy(self):
-        dx, dy = to_control_values(0, 100, 1280, 720, 95.8)
-        self.assertEqual(dx, 0)
-        self.assertLess(dy, 0)
+    def test_rounds_to_integers(self):
+        dx, dy = to_control_values(-309.5 + 0.2, -224.5 - 0.2)
+        self.assertEqual((dx, dy), (-309, 225))
+        self.assertIsInstance(dx, int)
+        self.assertIsInstance(dy, int)
+
+    def test_center_is_zero(self):
+        self.assertEqual(to_control_values(0.0, 0.0), (0, 0))
 
 
 if __name__ == "__main__":

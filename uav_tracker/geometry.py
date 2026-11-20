@@ -1,5 +1,4 @@
 """영상 좌표 계산. OpenCV/YOLO 없이도 테스트할 수 있습니다."""
-import math
 from dataclasses import dataclass
 
 
@@ -19,19 +18,6 @@ class Detection:
         return dict(cx=cx, cy=cy, error_x=cx - width / 2, error_y=cy - height / 2)
 
 
-def to_angle10(error_x: float, error_y: float, width: int, height: int,
-               dfov_deg: float) -> tuple[int, int]:
-    """픽셀 오차를 0.1° 단위 정수 각도 오차로 바꿉니다.
-
-    dfov_deg는 카메라 대각선 화각입니다. 광각 렌즈는 비례식 오차가 커서 atan을 씁니다.
-    카메라 기본 비율과 다른 해상도(예: 16:9 카메라를 4:3으로)는 화면이 잘려 화각이 달라질 수 있습니다.
-    """
-    half_diag = math.hypot(width, height) / 2
-    focal = half_diag / math.tan(math.radians(dfov_deg / 2))  # 픽셀 단위 초점거리
-    return (round(math.degrees(math.atan(error_x / focal)) * 10),
-            round(math.degrees(math.atan(error_y / focal)) * 10))
-
-
 def pick_target(detections, locked_id):
     """제어에 쓸 대상 하나를 고릅니다. 추적 중인 ID를 우선하고, 없으면 신뢰도 최대."""
     if not detections:
@@ -43,12 +29,11 @@ def pick_target(detections, locked_id):
     return max(detections, key=lambda d: d.confidence)
 
 
-def to_control_values(error_x: float, error_y: float, width: int, height: int,
-                      dfov_deg: float) -> tuple[int, int]:
-    """제어부(motor_control)에 보낼 dx, dy. 단위는 각도 × 10 (정수).
+def to_control_values(error_x: float, error_y: float) -> tuple[int, int]:
+    """제어부(motor_control)에 보낼 dx, dy. 단위는 픽셀, 정수.
 
-    팀 펌웨어 규칙에 맞춥니다: dx는 오른쪽이 +, dy는 위쪽이 + (조이스틱을 위로 밀 때와 같은 방향).
+    xy 평면처럼 맞춥니다: dx는 오른쪽 +, 왼쪽 −. dy는 위쪽 +, 아래쪽 −.
     영상 좌표는 아래쪽이 +이므로 세로 부호만 뒤집습니다.
+    (팀 펌웨어 조이스틱 모드도 스틱을 위로 밀면 + 라서 같은 방향입니다.)
     """
-    ax, ay = to_angle10(error_x, error_y, width, height, dfov_deg)
-    return ax, -ay
+    return round(error_x), round(-error_y)
